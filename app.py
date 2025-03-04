@@ -53,19 +53,26 @@ def create_app(config_class=Config):
     CORS(app)
     db.init_app(app)
     
+    # Create database tables
     with app.app_context():
-        # Create database tables
-        db.create_all()
-        
-        # Create default settings if they don't exist
-        if not Settings.query.first():
-            default_settings = Settings(
-                default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL', 'default@example.com'),
-                sender_name=app.config.get('SENDER_NAME', 'Reminder App')
-            )
-            db.session.add(default_settings)
-            db.session.commit()
-            logger.info("Created default settings")
+        try:
+            # Drop all tables and recreate them
+            db.drop_all()
+            db.create_all()
+            logger.info("Database tables created successfully")
+            
+            # Create default settings if they don't exist
+            if not Settings.query.first():
+                default_settings = Settings(
+                    default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL', 'default@example.com'),
+                    sender_name=app.config.get('SENDER_NAME', 'Reminder App')
+                )
+                db.session.add(default_settings)
+                db.session.commit()
+                logger.info("Created default settings")
+        except Exception as e:
+            logger.error(f"Error initializing database: {str(e)}")
+            raise e
     
     # Apply proxy fix for proper IP handling
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -84,6 +91,7 @@ class FrequencyType(str, Enum):
 
 # Models
 class Reminder(db.Model):
+    __tablename__ = 'reminder'  # Explicitly set the table name
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime, nullable=False)
     description = db.Column(db.String(200), nullable=False)
@@ -534,7 +542,6 @@ if __name__ == '__main__':
     logger.info(f"Sender Name: {app.config['SENDER_NAME']}")
     logger.info(f"Default Recipient: {app.config['DEFAULT_RECIPIENT_EMAIL']}")
     
-    init_db()  # Initialize database and create tables
     port = int(os.environ.get('PORT', 10000))
     if os.environ.get('FLASK_ENV') == 'development':
         app.run(host='0.0.0.0', port=port, debug=True)
