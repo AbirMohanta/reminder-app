@@ -403,8 +403,8 @@
 
             fetch('/get_reminders')
                 .then(response => response.json())
-                .then(reminders => {
-                    if (reminders.length === 0) {
+                .then(data => {
+                    if (!data.reminders || data.reminders.length === 0) {
                         remindersList.innerHTML = `
                             <div class="card">
                                 <p style="text-align: center; color: var(--text-secondary);">
@@ -415,21 +415,21 @@
                         return;
                     }
 
-                    remindersList.innerHTML = reminders.map(reminder => `
+                    remindersList.innerHTML = data.reminders.map(reminder => `
                         <div class="reminder-card">
                             <div class="reminder-info">
                                 <div class="info-item">
-                                        <i class="far fa-calendar"></i>
+                                    <i class="far fa-calendar"></i>
                                     <div>
                                         <div class="info-label">Date</div>
                                         <div class="info-value">${reminder.date}</div>
                                     </div>
                                 </div>
                                 <div class="info-item">
-                                        <i class="far fa-comment"></i>
+                                    <i class="far fa-comment"></i>
                                     <div>
                                         <div class="info-label">Description</div>
-                                    <div class="info-value">${reminder.description}</div>
+                                        <div class="info-value">${reminder.description}</div>
                                     </div>
                                 </div>
                                 <div class="info-item">
@@ -446,6 +446,15 @@
                                         <div class="info-value">${reminder.frequency}</div>
                                     </div>
                                 </div>
+                                ${reminder.created_at ? `
+                                <div class="info-item">
+                                    <i class="far fa-calendar-plus"></i>
+                                    <div>
+                                        <div class="info-label">Created At</div>
+                                        <div class="info-value">${reminder.created_at}</div>
+                                    </div>
+                                </div>
+                                ` : ''}
                             </div>
                             <div class="reminder-actions">
                                 <button class="btn btn-secondary" onclick='showEditModal(${JSON.stringify(reminder)})'>
