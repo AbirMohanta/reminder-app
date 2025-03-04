@@ -23,6 +23,9 @@ from config import Config
 # Load environment variables
 load_dotenv()
 
+# Initialize Flask extensions
+db = SQLAlchemy()
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
@@ -40,7 +43,6 @@ def create_app(config_class=Config):
     return app
 
 app = create_app()
-db = SQLAlchemy()
 
 # Add FrequencyType Enum
 class FrequencyType(str, Enum):
