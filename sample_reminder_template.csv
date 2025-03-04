@@ -1,3 +1,4 @@
-date,description,email
-2024-03-20T10:00:00,Team meeting,team@example.com
-2024-03-21T15:30:00,Project deadline,manager@example.com
+date,description,frequency,end_date
+04-03-2025,Team Meeting,weekly,02-06-2025
+05-03-2025,Project Deadline,once,
+06-03-2025,Weekly Review,monthly,31-08-2025

@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import csv
 from io import StringIO
@@ -11,10 +11,12 @@ from email.mime.multipart import MIMEMultipart
 import json
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, timedelta
 import logging
 from dotenv import load_dotenv
 from enum import Enum
+import re
+import io
+from dateutil import parser
 
 # Load environment variables
 load_dotenv()
@@ -64,10 +66,12 @@ class Reminder(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'date': self.date.isoformat(),
+            'date': self.date.strftime('%d-%m-%Y'),
             'description': self.description,
             'email': self.email,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.strftime('%d-%m-%Y %H:%M'),
+            'frequency': self.frequency,
+            'end_date': self.end_date.strftime('%d-%m-%Y') if self.end_date else None
         }
 
 class Settings(db.Model):
@@ -160,10 +164,10 @@ def check_reminders():
                     Hello!
 
                     This is your {reminder.frequency} reminder for: {reminder.description}
-                    Originally scheduled for: {reminder.date.strftime('%Y-%m-%d %H:%M')}
+                    Originally scheduled for: {reminder.date.strftime('%d-%m-%Y %H:%M')}
 
                     Frequency: {reminder.frequency.capitalize()}
-                    {f"End Date: {reminder.end_date.strftime('%Y-%m-%d')}" if reminder.end_date else ""}
+                    {f"End Date: {reminder.end_date.strftime('%d-%m-%Y')}" if reminder.end_date else ""}
 
                     Best regards,
                     {app.config['SENDER_NAME']}
@@ -189,178 +193,135 @@ scheduler.start()
 def index():
     return render_template('index.html')
 
+def format_date_for_display(date_obj):
+    """Convert datetime to display format (DD-MM-YYYY)"""
+    if isinstance(date_obj, datetime):
+        return date_obj.strftime('%d-%m-%Y')
+    return None
+
+def parse_date_string(date_string):
+    """Parse any date string to datetime object"""
+    try:
+        # First try explicit formats
+        formats = ['%d-%m-%Y', '%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d']
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_string, fmt)
+            except ValueError:
+                continue
+        
+        # If that fails, try dateutil parser
+        return parser.parse(date_string)
+    except:
+        return None
+
 @app.route('/add_reminder', methods=['POST'])
 def add_reminder():
     try:
-        data = request.form
-        date = datetime.strptime(data['date'], '%Y-%m-%d')
-        description = data['description']
-        email = data.get('email', app.config['DEFAULT_RECIPIENT_EMAIL'])
-        frequency = data.get('frequency', FrequencyType.ONCE)
-        end_date = None
+        data = request.get_json()
+        
+        # Convert string date to datetime object
+        reminder_date = parse_date_string(data.get('date'))
+        if not reminder_date:
+            return jsonify({"error": "Invalid date format. Use DD-MM-YYYY"}), 400
 
-        if 'end_date' in data and data['end_date']:
-            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d')
-
-        reminder = Reminder(
-            date=date,
-            description=description,
-            email=email,
-            frequency=frequency,
-            end_date=end_date
+        new_reminder = Reminder(
+            date=reminder_date,
+            description=data.get('description', '').strip(),
+            email=data.get('email', '').strip(),
+            frequency=data.get('frequency', 'once'),
+            created_at=datetime.now()
         )
-        db.session.add(reminder)
+
+        db.session.add(new_reminder)
         db.session.commit()
 
-        # Send confirmation email
-        subject = f"Reminder Confirmation - {app.config['SENDER_NAME']}"
-        body = f"""
-        Hello!
+        return jsonify({"message": "Reminder added successfully"}), 200
 
-        Your {frequency} reminder has been set successfully:
-        Description: {description}
-        Start Date: {date.strftime('%Y-%m-%d')}
-        Frequency: {frequency.capitalize()}
-        {f"End Date: {end_date.strftime('%Y-%m-%d')}" if end_date else ""}
-
-        You will receive notifications according to the frequency settings.
-
-        Best regards,
-        {app.config['SENDER_NAME']}
-        """
-        send_email(email, subject, body)
-
-        return jsonify({
-            'status': 'success',
-            'message': 'Reminder added successfully'
-        })
     except Exception as e:
-        logger.error(f"Error adding reminder: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 400
+        print(f"Error adding reminder: {str(e)}")  # Debug log
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/get_reminders')
-def get_all_reminders():
+@app.route('/get_reminders', methods=['GET'])
+def get_reminders():
     try:
-        reminders = Reminder.query.order_by(Reminder.date).all()
+        reminders = Reminder.query.all()
         return jsonify([{
-            'id': reminder.id,
-            'date': reminder.date.strftime('%Y-%m-%d'),
-            'description': reminder.description,
-            'email': reminder.email,
-            'sent': reminder.sent
-        } for reminder in reminders])
+            'id': r.id,
+            'date': format_date_for_display(r.date),
+            'description': r.description,
+            'email': r.email,
+            'frequency': r.frequency
+        } for r in reminders])
     except Exception as e:
-        logger.error(f"Error fetching reminders: {str(e)}")
-        return jsonify([])
+        print(f"Error getting reminders: {str(e)}")  # Debug log
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/test_email', methods=['POST'])
 def test_email():
     try:
-        email = request.form.get('email', app.config['DEFAULT_RECIPIENT_EMAIL'])
-        subject = f"Test Email from {app.config['SENDER_NAME']}"
-        body = f"""
-        Hello!
+        data = request.get_json()
+        email = data.get('email')
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
 
-        This is a test email from your {app.config['SENDER_NAME']}.
-        If you received this email, your email notifications are working correctly.
-
-        Best regards,
-        {app.config['SENDER_NAME']}
-        """
+        subject = "Test Email from Reminder App"
+        body = "This is a test email from your Reminder App."
         
-        if send_email(email, subject, body):
-            return jsonify({
-                'status': 'success',
-                'message': f'Test email sent successfully to {email}'
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to send test email'
-            }), 500
+        send_email(email, subject, body)
+        return jsonify({"message": "Test email sent successfully"}), 200
     except Exception as e:
-        logger.error(f"Error sending test email: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 400
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/upload_csv', methods=['POST'])
-def upload_csv_file():
+def upload_csv():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+    if not file.filename.endswith('.csv'):
+        return jsonify({"error": "File must be a CSV"}), 400
+
     try:
-        if 'file' not in request.files:
-            return jsonify({
-                'status': 'error',
-                'message': 'No file uploaded'
-            }), 400
-
-        file = request.files['file']
-        email = request.form['email']
-
-        if file.filename == '':
-            return jsonify({
-                'status': 'error',
-                'message': 'No file selected'
-            }), 400
-
-        if not file.filename.endswith('.csv'):
-            return jsonify({
-                'status': 'error',
-                'message': 'Please upload a CSV file'
-            }), 400
-
-        df = pd.read_csv(file)
+        stream = io.StringIO(file.stream.read().decode("UTF8"))
+        csv_reader = csv.DictReader(stream)
         
-        if not all(col in df.columns for col in ['date', 'description']):
-            return jsonify({
-                'status': 'error',
-                'message': 'CSV must contain date and description columns'
-            }), 400
+        success_count = 0
+        errors = []
 
-        reminders_added = 0
-        for _, row in df.iterrows():
+        for row in csv_reader:
             try:
-                date = datetime.strptime(row['date'], '%Y-%m-%d')
+                reminder_date = parse_date_string(row.get('date'))
+                if not reminder_date:
+                    errors.append(f"Invalid date format in row: {row.get('date')}")
+                    continue
+
                 reminder = Reminder(
-                    date=date,
-                    description=row['description'],
-                    email=email
+                    date=reminder_date,
+                    description=row.get('description', '').strip(),
+                    email=row.get('email', '').strip(),
+                    frequency=row.get('frequency', 'once').strip().lower(),
+                    created_at=datetime.now()
                 )
+                
                 db.session.add(reminder)
-                reminders_added += 1
+                success_count += 1
+                
             except Exception as e:
-                logger.error(f"Error processing CSV row: {str(e)}")
+                errors.append(f"Error in row: {str(e)}")
                 continue
 
         db.session.commit()
-
-        # Send confirmation email
-        subject = "CSV Reminders Added"
-        body = f"""
-        Hello!
-
-        {reminders_added} reminders have been successfully imported from your CSV file.
-        You will receive notifications for each reminder on their scheduled dates.
-
-        Best regards,
-        Your Reminder System
-        """
-        send_email(email, subject, body)
-
+        
         return jsonify({
-            'status': 'success',
-            'message': f'Successfully imported {reminders_added} reminders'
-        })
+            "message": f"Successfully added {success_count} reminders",
+            "errors": errors if errors else None
+        }), 200
+
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error uploading CSV: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 400
+        return jsonify({"error": f"Failed to process CSV: {str(e)}"}), 500
 
 @app.route('/health')
 def health_check():
@@ -370,29 +331,13 @@ def health_check():
         return jsonify({
             'status': 'ok',
             'database': 'connected',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.utcnow().strftime('%d-%m-%Y %H:%M')
         })
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return jsonify({
             'status': 'error',
             'database': 'disconnected',
-            'error': str(e)
-        }), 500
-
-@app.route('/reminders', methods=['GET'])
-def get_reminders():
-    try:
-        reminders = Reminder.query.order_by(Reminder.date).all()
-        return jsonify({
-            'status': 'success',
-            'reminders': [reminder.to_dict() for reminder in reminders]
-        })
-    except Exception as e:
-        logger.error(f"Error fetching reminders: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Failed to fetch reminders',
             'error': str(e)
         }), 500
 
@@ -420,19 +365,43 @@ def create_reminder():
         db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
-@app.route('/reminders/<int:reminder_id>', methods=['DELETE'])
+@app.route('/delete_reminder/<int:reminder_id>', methods=['DELETE'])
 def delete_reminder(reminder_id):
     try:
         reminder = Reminder.query.get_or_404(reminder_id)
         db.session.delete(reminder)
         db.session.commit()
-        return jsonify({
-            'status': 'success',
-            'message': f'Reminder {reminder_id} deleted successfully'
-        })
+        return jsonify({"message": "Reminder deleted successfully"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 400
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/edit_reminder/<int:reminder_id>', methods=['PUT'])
+def edit_reminder(reminder_id):
+    try:
+        data = request.get_json()
+        reminder = Reminder.query.get(reminder_id)
+        
+        if not reminder:
+            return jsonify({"error": "Reminder not found"}), 404
+
+        # Parse and validate the date
+        try:
+            date_str = data.get('date')
+            reminder.date = parse_date_string(date_str)
+        except:
+            return jsonify({"error": "Invalid date format"}), 400
+
+        # Update other fields
+        reminder.description = data.get('description', reminder.description)
+        reminder.email = data.get('email', reminder.email)
+        reminder.frequency = data.get('frequency', reminder.frequency)
+
+        db.session.commit()
+        return jsonify({"message": "Reminder updated successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/settings', methods=['GET'])
 def get_settings():
@@ -494,14 +463,60 @@ def update_settings():
 
 @app.route('/sample_csv')
 def get_sample_csv():
-    sample_data = {
-        'date': ['2024-03-20T10:00:00', '2024-03-21T15:30:00'],
-        'description': ['Team meeting', 'Project deadline'],
-        'email': ['team@example.com', 'manager@example.com']
-    }
-    df = pd.DataFrame(sample_data)
-    df.to_csv('sample_reminder_template.csv', index=False)
-    return send_file('sample_reminder_template.csv', as_attachment=True)
+    try:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['date', 'description', 'email', 'frequency'])
+        
+        # Write sample row
+        writer.writerow(['25-03-2024', 'Sample Reminder', 'example@email.com', 'once'])
+        
+        return output.getvalue(), 200, {
+            'Content-Type': 'text/csv',
+            'Content-Disposition': 'attachment; filename=sample_reminder.csv'
+        }
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/reset_database', methods=['POST'])
+def reset_database():
+    try:
+        # Simple reset - just delete all reminders
+        db.session.query(Reminder).delete()
+        db.session.commit()
+        return jsonify({"message": "Database reset successful"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+def standardize_date(date_input):
+    """Convert any date format to datetime object"""
+    if isinstance(date_input, datetime):
+        return date_input
+    
+    if isinstance(date_input, str):
+        # Try common date formats
+        formats = [
+            '%d-%m-%Y', '%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d',
+            '%d-%m-%y', '%y-%m-%d', '%d/%m/%y', '%y/%m/%d'
+        ]
+        
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_input, fmt)
+            except ValueError:
+                continue
+            
+        # Try parsing with dateutil as fallback
+        try:
+            from dateutil import parser
+            return parser.parse(date_input)
+        except:
+            raise ValueError(f"Could not parse date: {date_input}")
+    
+    raise ValueError("Invalid date input")
 
 if __name__ == '__main__':
     # Verify email configuration

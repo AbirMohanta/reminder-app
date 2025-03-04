@@ -1,4 +1,4 @@
-date,description
-2024-03-20,Important Meeting
-2024-03-25,Doctor's Appointment
-2024-04-01,Project Deadline 
+date,description,frequency,end_date
+2024-03-20,Team Meeting,weekly,2024-06-20
+2024-03-21,Project Deadline,once,
+2024-03-22,Weekly Review,monthly,2024-12-22 
