@@ -19,6 +19,9 @@ import io
 from dateutil import parser
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
+import requests
+from threading import Thread
+import time
 
 # Load environment variables
 load_dotenv()
@@ -598,6 +601,19 @@ def standardize_date(date_input):
     
     raise ValueError("Invalid date input")
 
+def keep_alive():
+    """Ping the application periodically to prevent it from spinning down"""
+    while True:
+        try:
+            # Get the server URL from environment variable or use a default
+            server_url = os.environ.get('SERVER_URL', 'https://your-app-name.onrender.com')
+            response = requests.get(f"{server_url}/health")
+            logger.info(f"Keep-alive ping sent. Status: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Keep-alive ping failed: {str(e)}")
+        # Sleep for 10 minutes
+        time.sleep(600)
+
 if __name__ == '__main__':
     # Verify email configuration
     logger.info("Starting server with email configuration:")
@@ -606,6 +622,12 @@ if __name__ == '__main__':
     logger.info(f"Sender Email: {app.config['SENDER_EMAIL']}")
     logger.info(f"Sender Name: {app.config['SENDER_NAME']}")
     logger.info(f"Default Recipient: {app.config['DEFAULT_RECIPIENT_EMAIL']}")
+    
+    # Start the keep-alive thread
+    if os.environ.get('FLASK_ENV') != 'development':
+        keep_alive_thread = Thread(target=keep_alive, daemon=True)
+        keep_alive_thread.start()
+        logger.info("Started keep-alive thread")
     
     port = int(os.environ.get('PORT', 10000))
     if os.environ.get('FLASK_ENV') == 'development':

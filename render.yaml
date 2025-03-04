@@ -13,6 +13,8 @@ services:
         value: true
       - key: SECRET_KEY
         generateValue: true
+      - key: SERVER_URL
+        value: https://reminder-app-ojul.onrender.com/
       - key: SMTP_SERVER
         sync: false
       - key: SMTP_PORT
