@@ -10,7 +10,16 @@ services:
       - key: FLASK_ENV
         value: production
       - key: DATABASE_URL
-        value: sqlite:///reminders.db
+        fromDatabase:
+          name: reminder-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: reminder-cache
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
       - key: SMTP_SERVER
         sync: false
       - key: SMTP_PORT
@@ -24,4 +33,38 @@ services:
       - key: SENDER_NAME
         sync: false
       - key: DEFAULT_RECIPIENT_EMAIL
-        sync: false 
+        sync: false
+
+  - type: redis
+    name: reminder-cache
+    ipAllowList: []
+    plan: free
+
+  - type: worker
+    name: reminder-worker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A tasks.celery worker --loglevel=info
+    envVars:
+      - fromService:
+          type: redis
+          name: reminder-cache
+          property: connectionString
+        key: REDIS_URL
+
+  - type: worker
+    name: reminder-scheduler
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A tasks.celery beat --loglevel=info
+    envVars:
+      - fromService:
+          type: redis
+          name: reminder-cache
+          property: connectionString
+        key: REDIS_URL
+
+databases:
+  - name: reminder-db
+    databaseName: reminder
+    plan: free 

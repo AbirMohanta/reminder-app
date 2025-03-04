@@ -17,32 +17,30 @@ from enum import Enum
 import re
 import io
 from dateutil import parser
+from werkzeug.middleware.proxy_fix import ProxyFix
+from config import Config
 
 # Load environment variables
 load_dotenv()
 
-app = Flask(__name__)
-CORS(app)
+def create_app(config_class=Config):
+    app = Flask(__name__)
+    app.config.from_object(config_class)
+    
+    # Initialize extensions
+    CORS(app)
+    db.init_app(app)
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    
+    # Apply proxy fix for proper IP handling
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    
+    return app
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Database configuration
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'reminders.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Email configuration from .env
-app.config['SMTP_SERVER'] = os.getenv('SMTP_SERVER')
-app.config['SMTP_PORT'] = int(os.getenv('SMTP_PORT'))
-app.config['SMTP_USERNAME'] = os.getenv('SMTP_USERNAME')
-app.config['SMTP_PASSWORD'] = os.getenv('SMTP_PASSWORD')
-app.config['SENDER_EMAIL'] = os.getenv('SENDER_EMAIL')
-app.config['SENDER_NAME'] = os.getenv('SENDER_NAME')
-app.config['DEFAULT_RECIPIENT_EMAIL'] = os.getenv('DEFAULT_RECIPIENT_EMAIL')
-
-db = SQLAlchemy(app)
+app = create_app()
+db = SQLAlchemy()
 
 # Add FrequencyType Enum
 class FrequencyType(str, Enum):
@@ -528,4 +526,8 @@ if __name__ == '__main__':
     logger.info(f"Default Recipient: {app.config['DEFAULT_RECIPIENT_EMAIL']}")
     
     init_db()  # Initialize database and create tables
-    app.run(debug=True, port=5001) 
+    port = int(os.environ.get('PORT', 10000))
+    if os.environ.get('FLASK_ENV') == 'development':
+        app.run(host='0.0.0.0', port=port, debug=True)
+    else:
+        app.run(host='0.0.0.0', port=port) 
