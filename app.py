@@ -45,17 +45,13 @@ class Settings(db.Model):
             'sender_name': self.sender_name
         }
 
-def create_app(config_class=Config):
-    app = Flask(__name__)
-    app.config.from_object(config_class)
-    
-    # Initialize extensions
-    CORS(app)
-    db.init_app(app)
-    
-    # Create database tables
-    with app.app_context():
-        try:
+def init_db(app):
+    """Initialize database and create tables"""
+    try:
+        # Ensure the instance folder exists
+        os.makedirs(os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')), exist_ok=True)
+        
+        with app.app_context():
             # Create tables if they don't exist
             db.create_all()
             logger.info("Database tables created successfully")
@@ -69,12 +65,24 @@ def create_app(config_class=Config):
                 db.session.add(default_settings)
                 db.session.commit()
                 logger.info("Created default settings")
-        except Exception as e:
-            logger.error(f"Error initializing database: {str(e)}")
-            raise e
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        raise e
+
+def create_app(config_class=Config):
+    """Create and configure the Flask application"""
+    app = Flask(__name__)
+    app.config.from_object(config_class)
+    
+    # Initialize extensions
+    CORS(app)
+    db.init_app(app)
     
     # Apply proxy fix for proper IP handling
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    
+    # Initialize database
+    init_db(app)
     
     return app
 
@@ -90,14 +98,20 @@ class FrequencyType(str, Enum):
 
 # Models
 class Reminder(db.Model):
+    """Model for storing reminders"""
+    __tablename__ = 'reminder'
+    
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime, nullable=False)
-    description = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.String(500), nullable=False)
     email = db.Column(db.String(120), nullable=False)
-    frequency = db.Column(db.String(20), nullable=False, default=FrequencyType.ONCE)
-    last_sent = db.Column(db.DateTime)
+    frequency = db.Column(db.String(50), default='once')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    end_date = db.Column(db.DateTime, nullable=True)  # For recurring reminders
+    last_sent = db.Column(db.DateTime, nullable=True)
+    end_date = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        return f'<Reminder {self.description[:20]}...>'
 
     def to_dict(self):
         return {
@@ -261,14 +275,14 @@ def get_reminders():
         reminders = Reminder.query.all()
         return jsonify([{
             'id': r.id,
-            'date': format_date_for_display(r.date),
+            'date': r.date.strftime('%Y-%m-%d'),
             'description': r.description,
             'email': r.email,
             'frequency': r.frequency
         } for r in reminders])
     except Exception as e:
-        print(f"Error getting reminders: {str(e)}")  # Debug log
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching reminders: {str(e)}")
+        return jsonify({'error': 'Failed to fetch reminders'}), 500
 
 @app.route('/test_email', methods=['POST'])
 def test_email():
