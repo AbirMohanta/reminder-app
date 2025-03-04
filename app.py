@@ -611,8 +611,8 @@ def keep_alive():
             logger.info(f"Keep-alive ping sent. Status: {response.status_code}")
         except Exception as e:
             logger.error(f"Keep-alive ping failed: {str(e)}")
-        # Sleep for 10 minutes
-        time.sleep(600)
+        # Sleep for 3 minutes
+        time.sleep(180)
 
 if __name__ == '__main__':
     # Verify email configuration
