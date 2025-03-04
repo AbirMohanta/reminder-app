@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 class Config:
     # Basic Flask config
@@ -6,7 +7,10 @@ class Config:
     
     # Database
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///reminders.db'
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    DB_PATH = os.path.join(BASE_DIR, 'instance', 'reminders.db')
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{DB_PATH}'
     
     # Email
     SMTP_SERVER = os.getenv('SMTP_SERVER')

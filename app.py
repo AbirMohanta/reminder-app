@@ -48,13 +48,17 @@ class Settings(db.Model):
 def init_db(app):
     """Initialize database and create tables"""
     try:
-        # Ensure the instance folder exists
-        os.makedirs(os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')), exist_ok=True)
+        # Ensure the database directory exists
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        if not db_path:
+            raise ValueError("Invalid database URI")
+            
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         
         with app.app_context():
             # Create tables if they don't exist
             db.create_all()
-            logger.info("Database tables created successfully")
+            logger.info(f"Database tables created successfully at {db_path}")
             
             # Create default settings if they don't exist
             if not Settings.query.first():
@@ -71,8 +75,15 @@ def init_db(app):
 
 def create_app(config_class=Config):
     """Create and configure the Flask application"""
-    app = Flask(__name__)
+    app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_class)
+    
+    # Ensure the instance folder exists
+    try:
+        os.makedirs(app.instance_path, exist_ok=True)
+        logger.info(f"Instance path created at {app.instance_path}")
+    except Exception as e:
+        logger.warning(f"Could not create instance path: {str(e)}")
     
     # Initialize extensions
     CORS(app)
