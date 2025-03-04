@@ -33,6 +33,14 @@ logging.basicConfig(
 # Initialize Flask extensions
 db = SQLAlchemy()
 
+# Add FrequencyType Enum
+class FrequencyType(str, Enum):
+    ONCE = "once"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
 # Models
 class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -45,94 +53,6 @@ class Settings(db.Model):
             'sender_name': self.sender_name
         }
 
-def init_db(app):
-    """Initialize database and create tables"""
-    try:
-        # Log database configuration
-        logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-        logger.info(f"Database directory: {os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))}")
-        logger.info(f"Current working directory: {os.getcwd()}")
-        logger.info(f"Directory contents: {os.listdir('.')}")
-        
-        # Ensure the database directory exists
-        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
-        if not db_path:
-            raise ValueError("Invalid database URI")
-            
-        db_dir = os.path.dirname(db_path)
-        if not os.path.exists(db_dir):
-            logger.info(f"Creating database directory: {db_dir}")
-            try:
-                os.makedirs(db_dir, exist_ok=True)
-                logger.info(f"Successfully created database directory at {db_dir}")
-            except Exception as e:
-                logger.error(f"Failed to create database directory: {str(e)}")
-                # Try fallback location
-                db_dir = os.path.join(os.getcwd(), 'instance')
-                os.makedirs(db_dir, exist_ok=True)
-                app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(db_dir, "reminders.db")}'
-                logger.info(f"Using fallback database location: {app.config['SQLALCHEMY_DATABASE_URI']}")
-        
-        with app.app_context():
-            # Create tables if they don't exist
-            db.create_all()
-            logger.info(f"Database tables created successfully at {db_path}")
-            
-            # Create default settings if they don't exist
-            if not Settings.query.first():
-                default_settings = Settings(
-                    default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL'),
-                    sender_name=app.config.get('SENDER_NAME')
-                )
-                db.session.add(default_settings)
-                db.session.commit()
-                logger.info("Created default settings")
-    except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
-        logger.error(f"Current working directory: {os.getcwd()}")
-        logger.error(f"Directory contents: {os.listdir('.')}")
-        raise e
-
-def create_app(config_class=Config):
-    """Create and configure the Flask application"""
-    app = Flask(__name__, instance_relative_config=True)
-    app.config.from_object(config_class)
-    
-    # Configure logging for the app
-    if not app.debug:
-        file_handler = logging.FileHandler('app.log')
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s: %(message)s '
-            '[in %(pathname)s:%(lineno)d]'
-        ))
-        app.logger.addHandler(file_handler)
-        app.logger.setLevel(logging.INFO)
-        app.logger.info('Reminder App startup')
-    
-    # Initialize extensions
-    CORS(app)
-    db.init_app(app)
-    
-    # Apply proxy fix for proper IP handling
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-    
-    # Initialize database
-    init_db(app)
-    
-    return app
-
-app = create_app()
-
-# Add FrequencyType Enum
-class FrequencyType(str, Enum):
-    ONCE = "once"
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-    YEARLY = "yearly"
-
-# Models
 class Reminder(db.Model):
     """Model for storing reminders"""
     __tablename__ = 'reminder'
@@ -159,6 +79,101 @@ class Reminder(db.Model):
             'frequency': self.frequency,
             'end_date': self.end_date.strftime('%d-%m-%Y') if self.end_date else None
         }
+
+def init_db(app):
+    """Initialize database and create tables"""
+    try:
+        # Log database configuration
+        logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+        logger.info(f"Database directory: {os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        # Ensure the database directory exists
+        db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
+        if not db_path:
+            raise ValueError("Invalid database URI")
+            
+        db_dir = os.path.dirname(db_path)
+        if not os.path.exists(db_dir):
+            logger.info(f"Creating database directory: {db_dir}")
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Successfully created database directory at {db_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create database directory: {str(e)}")
+                # Try fallback location
+                db_dir = os.path.join(os.getcwd(), 'instance')
+                os.makedirs(db_dir, exist_ok=True)
+                app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(db_dir, "reminders.db")}'
+                logger.info(f"Using fallback database location: {app.config['SQLALCHEMY_DATABASE_URI']}")
+        
+        # Initialize the database
+        db.init_app(app)
+        
+        # Create tables within application context
+        with app.app_context():
+            # Drop all tables first to ensure clean state
+            logger.info("Dropping existing tables...")
+            db.drop_all()
+            
+            # Create all tables
+            logger.info("Creating database tables...")
+            db.create_all()
+            logger.info(f"Database tables created successfully at {db_path}")
+            
+            # Create default settings if they don't exist
+            if not Settings.query.first():
+                default_settings = Settings(
+                    default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL', 'default@example.com'),
+                    sender_name=app.config.get('SENDER_NAME', 'Reminder App')
+                )
+                db.session.add(default_settings)
+                db.session.commit()
+                logger.info("Created default settings")
+            
+            # Verify tables exist by running a test query
+            try:
+                db.session.query(Reminder).first()
+                logger.info("Database tables verified successfully")
+            except Exception as e:
+                logger.error(f"Error verifying tables: {str(e)}")
+                raise
+                
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        logger.error(f"Current working directory: {os.getcwd()}")
+        logger.error(f"Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+        raise e
+
+def create_app(config_class=Config):
+    """Create and configure the Flask application"""
+    app = Flask(__name__, instance_relative_config=True)
+    app.config.from_object(config_class)
+    
+    # Configure logging for the app
+    if not app.debug:
+        file_handler = logging.FileHandler('app.log')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s '
+            '[in %(pathname)s:%(lineno)d]'
+        ))
+        app.logger.addHandler(file_handler)
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Reminder App startup')
+    
+    # Initialize extensions
+    CORS(app)
+    
+    # Initialize database
+    init_db(app)
+    
+    # Apply proxy fix for proper IP handling
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    
+    return app
+
+app = create_app()
 
 def send_email(to_email, subject, body):
     """Send email using configured SMTP server"""
@@ -309,16 +324,18 @@ def add_reminder():
 def get_reminders():
     try:
         reminders = Reminder.query.all()
-        return jsonify([{
+        reminder_list = [{
             'id': r.id,
-            'date': r.date.strftime('%Y-%m-%d'),
+            'date': format_date_for_display(r.date),
             'description': r.description,
             'email': r.email,
-            'frequency': r.frequency
-        } for r in reminders])
+            'frequency': r.frequency,
+            'created_at': format_date_for_display(r.created_at)
+        } for r in reminders]
+        return jsonify({'reminders': reminder_list})
     except Exception as e:
         logger.error(f"Error fetching reminders: {str(e)}")
-        return jsonify({'error': 'Failed to fetch reminders'}), 500
+        return jsonify({'error': 'Failed to fetch reminders', 'details': str(e)}), 500
 
 @app.route('/test_email', methods=['POST'])
 def test_email():
