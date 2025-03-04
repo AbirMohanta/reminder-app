@@ -8,15 +8,26 @@ class Config:
     # Database
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # In production (Render), use the /data directory
+    # Get the base directory for the application
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    
+    # In production (Render), use a directory in the project space
     if os.getenv('RENDER'):
-        DB_DIR = '/data'
+        DB_DIR = os.path.join(os.path.dirname(BASE_DIR), 'data')
     else:
         # In development, use local instance directory
-        DB_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance')
+        DB_DIR = os.path.join(BASE_DIR, 'instance')
     
-    # Ensure database directory exists
-    os.makedirs(DB_DIR, exist_ok=True)
+    # Create database directory if it doesn't exist
+    try:
+        os.makedirs(DB_DIR, exist_ok=True)
+        print(f"Successfully created database directory at {DB_DIR}")
+    except Exception as e:
+        print(f"Error creating database directory: {e}")
+        # Fallback to a directory in the user space
+        DB_DIR = os.path.join(os.path.expanduser('~'), '.reminder-app')
+        os.makedirs(DB_DIR, exist_ok=True)
+        print(f"Using fallback database directory: {DB_DIR}")
     
     # Set database path
     DB_PATH = os.path.join(DB_DIR, 'reminders.db')

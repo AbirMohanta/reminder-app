@@ -51,6 +51,8 @@ def init_db(app):
         # Log database configuration
         logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
         logger.info(f"Database directory: {os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        logger.info(f"Directory contents: {os.listdir('.')}")
         
         # Ensure the database directory exists
         db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
@@ -60,7 +62,16 @@ def init_db(app):
         db_dir = os.path.dirname(db_path)
         if not os.path.exists(db_dir):
             logger.info(f"Creating database directory: {db_dir}")
-            os.makedirs(db_dir, exist_ok=True)
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Successfully created database directory at {db_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create database directory: {str(e)}")
+                # Try fallback location
+                db_dir = os.path.join(os.getcwd(), 'instance')
+                os.makedirs(db_dir, exist_ok=True)
+                app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(db_dir, "reminders.db")}'
+                logger.info(f"Using fallback database location: {app.config['SQLALCHEMY_DATABASE_URI']}")
         
         with app.app_context():
             # Create tables if they don't exist
