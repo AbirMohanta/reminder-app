@@ -268,7 +268,7 @@ def keep_alive():
     while True:
         try:
             # Get the server URL from environment variable or use a default
-            server_url = os.environ.get('SERVER_URL', 'https://your-app-name.onrender.com')
+            server_url = os.environ.get('SERVER_URL', 'https://reminder-app-ojul.onrender.com')
             # Ping both health and keep-alive endpoints
             health_response = requests.get(f"{server_url}/health")
             keep_alive_response = requests.get(f"{server_url}/keep-alive")
