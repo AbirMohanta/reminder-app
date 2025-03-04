@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Date Reminder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .container { max-width: 800px; }
+        .reminder-card { margin-bottom: 10px; }
+        .alert-floating {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            min-width: 300px;
+        }
+        .btn:disabled {
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">Date Reminder System</h2>
+        
+        <!-- Add Single Reminder -->
+        <div class="card mb-4">
+            <div class="card-header">Add Reminder</div>
+            <div class="card-body">
+                <form id="reminderForm">
+                    <div class="mb-3">
+                        <label for="date" class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <input type="text" class="form-control" id="description" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="frequency" class="form-label">Frequency</label>
+                        <select class="form-control" id="frequency" required>
+                            <option value="once">Once</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="endDateContainer" style="display: none;">
+                        <label for="endDate" class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="endDate">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Reminder</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Test Email Section -->
+        <div class="card mb-4">
+            <div class="card-header">Test Email Notification</div>
+            <div class="card-body">
+                <form id="testEmailForm">
+                    <div class="mb-3">
+                        <label for="testEmail" class="form-label">Email Address</label>
+                        <input type="email" class="form-control" id="testEmail" required>
+                    </div>
+                    <button type="submit" class="btn btn-warning">Send Test Email</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Upload CSV -->
+        <div class="card mb-4">
+            <div class="card-header">Upload CSV File</div>
+            <div class="card-body">
+                <form id="csvForm">
+                    <div class="mb-3">
+                        <label for="csvEmail" class="form-label">Email for Notifications</label>
+                        <input type="email" class="form-control" id="csvEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="csvFile" class="form-label">CSV File (date,description)</label>
+                        <input type="file" class="form-control" id="csvFile" accept=".csv" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload CSV</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Reminders List -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Your Reminders</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadReminders()">Refresh</button>
+            </div>
+            <div class="card-body">
+                <div id="remindersList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Show notification function
+        function showNotification(message, type = 'success') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type} alert-dismissible fade show alert-floating`;
+            alert.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alert);
+            
+            // Remove after 5 seconds
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        // Load reminders on page load
+        document.addEventListener('DOMContentLoaded', loadReminders);
+
+        // Handle single reminder form
+        document.getElementById('reminderForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('date', document.getElementById('date').value);
+            formData.append('description', document.getElementById('description').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('frequency', document.getElementById('frequency').value);
+            
+            const endDate = document.getElementById('endDate').value;
+            if (endDate) {
+                formData.append('end_date', endDate);
+            }
+
+            fetch('/add_reminder', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification('Reminder added successfully!');
+                    loadReminders();
+                    this.reset();
+                } else {
+                    showNotification(data.message, 'danger');
+                }
+            });
+        });
+
+        // Handle test email form
+        document.getElementById('testEmailForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const button = this.querySelector('button');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = 'Sending...';
+            
+            const formData = new FormData();
+            formData.append('email', document.getElementById('testEmail').value);
+
+            fetch('/test_email', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification(data.message);
+                    this.reset();
+                } else {
+                    showNotification(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showNotification('Failed to send test email', 'danger');
+                console.error('Error:', error);
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        });
+
+        // Handle CSV upload
+        document.getElementById('csvForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('file', document.getElementById('csvFile').files[0]);
+            formData.append('email', document.getElementById('csvEmail').value);
+
+            fetch('/upload_csv', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification(data.message);
+                    loadReminders();
+                    this.reset();
+                } else {
+                    showNotification(data.message, 'danger');
+                }
+            });
+        });
+
+        // Load reminders
+        function loadReminders() {
+            fetch('/get_reminders')
+                .then(response => response.json())
+                .then(reminders => {
+                    const remindersList = document.getElementById('remindersList');
+                    if (reminders.length === 0) {
+                        remindersList.innerHTML = '<p class="text-muted text-center py-3">No reminders yet</p>';
+                        return;
+                    }
+
+                    remindersList.innerHTML = reminders.map(reminder => `
+                        <div class="card reminder-card">
+                            <div class="card-body">
+                                <h5 class="card-title">${reminder.description}</h5>
+                                <p class="card-text">
+                                    Start Date: ${reminder.date}<br>
+                                    Frequency: ${reminder.frequency.charAt(0).toUpperCase() + reminder.frequency.slice(1)}<br>
+                                    ${reminder.end_date ? `End Date: ${reminder.end_date}<br>` : ''}
+                                    Email: ${reminder.email}
+                                </p>
+                            </div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        document.getElementById('frequency').addEventListener('change', function() {
+            const endDateContainer = document.getElementById('endDateContainer');
+            if (this.value === 'once') {
+                endDateContainer.style.display = 'none';
+                document.getElementById('endDate').removeAttribute('required');
+            } else {
+                endDateContainer.style.display = 'block';
+                document.getElementById('endDate').setAttribute('required', 'required');
+            }
+        });
+    </script>
+</body>
+</html> 
