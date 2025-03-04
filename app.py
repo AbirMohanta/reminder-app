@@ -23,8 +23,27 @@ from config import Config
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # Initialize Flask extensions
 db = SQLAlchemy()
+
+# Models
+class Settings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    default_email = db.Column(db.String(120), nullable=False)
+    sender_name = db.Column(db.String(120), nullable=False)
+
+    def to_dict(self):
+        return {
+            'default_email': self.default_email,
+            'sender_name': self.sender_name
+        }
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -34,8 +53,19 @@ def create_app(config_class=Config):
     CORS(app)
     db.init_app(app)
     
-    # Configure logging
-    logging.basicConfig(level=logging.INFO)
+    with app.app_context():
+        # Create database tables
+        db.create_all()
+        
+        # Create default settings if they don't exist
+        if not Settings.query.first():
+            default_settings = Settings(
+                default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL', 'default@example.com'),
+                sender_name=app.config.get('SENDER_NAME', 'Reminder App')
+            )
+            db.session.add(default_settings)
+            db.session.commit()
+            logger.info("Created default settings")
     
     # Apply proxy fix for proper IP handling
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -73,30 +103,6 @@ class Reminder(db.Model):
             'frequency': self.frequency,
             'end_date': self.end_date.strftime('%d-%m-%Y') if self.end_date else None
         }
-
-class Settings(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    default_email = db.Column(db.String(120), nullable=False)
-    sender_name = db.Column(db.String(120), nullable=False)
-
-    def to_dict(self):
-        return {
-            'default_email': self.default_email,
-            'sender_name': self.sender_name
-        }
-
-# Create database tables
-def init_db():
-    with app.app_context():
-        db.create_all()
-        # Create default settings if they don't exist
-        if not Settings.query.first():
-            default_settings = Settings(
-                default_email=app.config['DEFAULT_RECIPIENT_EMAIL'],
-                sender_name=app.config['SENDER_NAME']
-            )
-            db.session.add(default_settings)
-            db.session.commit()
 
 def send_email(to_email, subject, body):
     """Send email using configured SMTP server"""
@@ -325,13 +331,14 @@ def upload_csv():
 
 @app.route('/health')
 def health_check():
+    """Health check endpoint to verify application status"""
     try:
         # Test database connection
         db.session.query(Settings).first()
         return jsonify({
             'status': 'ok',
             'database': 'connected',
-            'timestamp': datetime.utcnow().strftime('%d-%m-%Y %H:%M')
+            'timestamp': datetime.utcnow().strftime('%d-%m-%Y %H:%M:%S')
         })
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
