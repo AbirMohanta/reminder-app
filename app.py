@@ -263,9 +263,45 @@ def check_reminders():
         except Exception as e:
             logger.error(f"Error in check_reminders: {str(e)}")
 
-# Initialize scheduler
+def keep_alive():
+    """Ping the application periodically to prevent it from spinning down"""
+    while True:
+        try:
+            # Get the server URL from environment variable or use a default
+            server_url = os.environ.get('SERVER_URL', 'https://your-app-name.onrender.com')
+            # Ping both health and keep-alive endpoints
+            health_response = requests.get(f"{server_url}/health")
+            keep_alive_response = requests.get(f"{server_url}/keep-alive")
+            logger.info(f"Keep-alive ping sent. Health Status: {health_response.status_code}, Keep-alive Status: {keep_alive_response.status_code}")
+        except Exception as e:
+            logger.error(f"Keep-alive ping failed: {str(e)}")
+        # Sleep for 30 seconds
+        time.sleep(30)
+
+@app.route('/keep-alive')
+def keep_alive_endpoint():
+    """Secondary keep-alive endpoint that helps maintain the application's active state"""
+    try:
+        # Perform a simple database query to keep the connection alive
+        db.session.query(Settings).first()
+        return jsonify({
+            'status': 'ok',
+            'timestamp': datetime.utcnow().strftime('%d-%m-%Y %H:%M:%S')
+        })
+    except Exception as e:
+        logger.error(f"Keep-alive check failed: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+# Initialize scheduler with more frequent checks
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=check_reminders, trigger="interval", minutes=1)
+scheduler.add_job(func=lambda: requests.get(f"{os.environ.get('SERVER_URL')}/keep-alive"), 
+                 trigger="interval", 
+                 seconds=45,
+                 id='secondary_keep_alive')
 scheduler.start()
 
 # Routes
@@ -600,19 +636,6 @@ def standardize_date(date_input):
             raise ValueError(f"Could not parse date: {date_input}")
     
     raise ValueError("Invalid date input")
-
-def keep_alive():
-    """Ping the application periodically to prevent it from spinning down"""
-    while True:
-        try:
-            # Get the server URL from environment variable or use a default
-            server_url = os.environ.get('SERVER_URL', 'https://your-app-name.onrender.com')
-            response = requests.get(f"{server_url}/health")
-            logger.info(f"Keep-alive ping sent. Status: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Keep-alive ping failed: {str(e)}")
-        # Sleep for 3 minutes
-        time.sleep(180)
 
 if __name__ == '__main__':
     # Verify email configuration
