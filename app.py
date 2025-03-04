@@ -48,12 +48,19 @@ class Settings(db.Model):
 def init_db(app):
     """Initialize database and create tables"""
     try:
+        # Log database configuration
+        logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+        logger.info(f"Database directory: {os.path.dirname(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', ''))}")
+        
         # Ensure the database directory exists
         db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
         if not db_path:
             raise ValueError("Invalid database URI")
             
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        db_dir = os.path.dirname(db_path)
+        if not os.path.exists(db_dir):
+            logger.info(f"Creating database directory: {db_dir}")
+            os.makedirs(db_dir, exist_ok=True)
         
         with app.app_context():
             # Create tables if they don't exist
@@ -63,14 +70,16 @@ def init_db(app):
             # Create default settings if they don't exist
             if not Settings.query.first():
                 default_settings = Settings(
-                    default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL', 'default@example.com'),
-                    sender_name=app.config.get('SENDER_NAME', 'Reminder App')
+                    default_email=app.config.get('DEFAULT_RECIPIENT_EMAIL'),
+                    sender_name=app.config.get('SENDER_NAME')
                 )
                 db.session.add(default_settings)
                 db.session.commit()
                 logger.info("Created default settings")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}")
+        logger.error(f"Current working directory: {os.getcwd()}")
+        logger.error(f"Directory contents: {os.listdir('.')}")
         raise e
 
 def create_app(config_class=Config):
@@ -78,12 +87,17 @@ def create_app(config_class=Config):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_class)
     
-    # Ensure the instance folder exists
-    try:
-        os.makedirs(app.instance_path, exist_ok=True)
-        logger.info(f"Instance path created at {app.instance_path}")
-    except Exception as e:
-        logger.warning(f"Could not create instance path: {str(e)}")
+    # Configure logging for the app
+    if not app.debug:
+        file_handler = logging.FileHandler('app.log')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s '
+            '[in %(pathname)s:%(lineno)d]'
+        ))
+        app.logger.addHandler(file_handler)
+        app.logger.setLevel(logging.INFO)
+        app.logger.info('Reminder App startup')
     
     # Initialize extensions
     CORS(app)
