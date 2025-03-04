@@ -56,8 +56,7 @@ def create_app(config_class=Config):
     # Create database tables
     with app.app_context():
         try:
-            # Drop all tables and recreate them
-            db.drop_all()
+            # Create tables if they don't exist
             db.create_all()
             logger.info("Database tables created successfully")
             
@@ -91,7 +90,6 @@ class FrequencyType(str, Enum):
 
 # Models
 class Reminder(db.Model):
-    __tablename__ = 'reminder'  # Explicitly set the table name
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime, nullable=False)
     description = db.Column(db.String(200), nullable=False)
